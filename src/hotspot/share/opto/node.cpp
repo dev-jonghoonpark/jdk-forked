@@ -1476,6 +1476,19 @@ static void kill_dead_code( Node *dead, PhaseIterGVN *igvn ) {
           } else if (n->outcnt() == 1 &&
                      n->has_special_unique_user()) {
             igvn->add_users_to_worklist( n );
+          } else if (n->outcnt() == 1 && n->Opcode() == Op_LoadUS) {
+            // When a Load's outcnt drops to 1, RShiftI::Ideal's
+            // convert_to_signed_load optimization may become enabled.
+            // Notify RShiftI users of the LShiftI to revisit.
+            Node* unique = n->unique_out();
+            if (unique->Opcode() == Op_LShiftI) {
+              for (DUIterator_Fast jmax, j = unique->fast_outs(jmax); j < jmax; j++) {
+                Node* u = unique->fast_out(j);
+                if (u->Opcode() == Op_RShiftI) {
+                  igvn->_worklist.push(u);
+                }
+              }
+            }
           } else if (n->outcnt() <= 2 && n->is_Store()) {
             // Push store's uses on worklist to enable folding optimization for
             // store/store and store/load to the same address.

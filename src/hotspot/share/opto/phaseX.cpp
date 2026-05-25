@@ -2366,6 +2366,16 @@ void PhaseIterGVN::remove_globally_dead_node(Node* dead, NodeOrigin origin) {
             } else if (in->outcnt() == 1 &&
                        in->has_special_unique_user()) {
               _worklist.push(in->unique_out());
+            } else if (in->outcnt() == 1 && in->Opcode() == Op_LoadUS) {
+              // When a Load's outcnt drops to 1, RShiftI::Ideal's
+              // convert_to_signed_load optimization may become enabled.
+              // Notify RShiftI users of the LShiftI to revisit.
+              Node* unique = in->unique_out();
+              if (unique->Opcode() == Op_LShiftI) {
+                add_users_to_worklist_if(_worklist, unique, [](Node* u) {
+                  return u->Opcode() == Op_RShiftI;
+                });
+              }
             } else if (in->outcnt() <= 2 && dead->is_Phi()) {
               if (in->Opcode() == Op_Region) {
                 _worklist.push(in);
@@ -3528,6 +3538,20 @@ void Node::set_req_X( uint i, Node *n, PhaseIterGVN *igvn ) {
     case 1:
       if( old->is_Store() || old->has_special_unique_user() )
         igvn->add_users_to_worklist( old );
+      if (old->Opcode() == Op_LoadUS) {
+        // When a Load's outcnt drops to 1, RShiftI::Ideal's
+        // convert_to_signed_load optimization may become enabled.
+        // Notify RShiftI users of the LShiftI to revisit.
+        Node* unique = old->unique_out();
+        if (unique->Opcode() == Op_LShiftI) {
+          for (DUIterator_Fast jmax, j = unique->fast_outs(jmax); j < jmax; j++) {
+            Node* u = unique->fast_out(j);
+            if (u->Opcode() == Op_RShiftI) {
+              igvn->_worklist.push(u);
+            }
+          }
+        }
+      }
       break;
     case 2:
       if( old->is_Store() )
