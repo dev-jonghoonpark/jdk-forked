@@ -1,0 +1,122 @@
+# EXPERIMENT ONLY - not for upstream.
+# Trimmed copy of test.yml that runs a single test suite given as input.
+
+name: 'Run a single test (experiment)'
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        required: true
+        type: string
+      bootjdk-platform:
+        required: true
+        type: string
+      runs-on:
+        required: true
+        type: string
+      architecture:
+        required: false
+        type: string
+      debug-suffix:
+        required: false
+        type: string
+      test-suite:
+        required: true
+        type: string
+
+env:
+  # These are needed to make the MSYS2 bash work properly
+  MSYS2_PATH_TYPE: minimal
+  CHERE_INVOKING: 1
+
+jobs:
+  test:
+    name: test
+    runs-on: ${{ inputs.runs-on }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: 'Checkout the JDK source'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: 'Get MSYS2'
+        uses: ./.github/actions/get-msys2
+        with:
+          architecture: ${{ inputs.architecture }}
+        if: runner.os == 'Windows'
+
+      - name: 'Get the BootJDK'
+        id: bootjdk
+        uses: ./.github/actions/get-bootjdk
+        with:
+          platform: ${{ inputs.bootjdk-platform }}
+
+      - name: 'Get JTReg'
+        id: jtreg
+        uses: ./.github/actions/get-jtreg
+
+      - name: 'Get bundles'
+        id: bundles
+        uses: ./.github/actions/get-bundles
+        with:
+          platform: ${{ inputs.platform }}
+          debug-suffix: ${{ inputs.debug-suffix }}
+
+      - name: 'Set PATH'
+        id: path
+        run: |
+          # We need a minimal PATH on Windows
+          if [[ '${{ runner.os }}' == 'Windows' ]]; then
+            echo "value=" >> $GITHUB_OUTPUT
+          else
+            echo "value=$PATH" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 'Print CPU features'
+        run: |
+          if [[ -f /proc/cpuinfo ]]; then
+            grep -m1 'model name' /proc/cpuinfo || true
+            grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(sse4_2|avx|avx2|avx512f|avx512bw|avx512vl|avx512dq|avx512_fp16)$' | tr '\n' ' ' || true
+            echo
+          fi
+          "${{ steps.bundles.outputs.jdk-path }}/bin/java" -XX:+PrintFlagsFinal -version \
+            | grep -E ' (UseSSE|UseAVX|MaxVectorSize|UseAVX512) ' || true
+
+      - name: 'Run tests'
+        id: run-tests
+        run: >
+          make test-prebuilt
+          TEST='${{ inputs.test-suite }}'
+          BOOT_JDK=${{ steps.bootjdk.outputs.path }}
+          JT_HOME=${{ steps.jtreg.outputs.path }}
+          JDK_IMAGE_DIR=${{ steps.bundles.outputs.jdk-path }}
+          SYMBOLS_IMAGE_DIR=${{ steps.bundles.outputs.symbols-path }}
+          TEST_IMAGE_DIR=${{ steps.bundles.outputs.tests-path }}
+          JTREG='JAVA_OPTIONS=-XX:-CreateCoredumpOnCrash;VERBOSE=fail,error,time;KEYWORDS=!headful'
+        env:
+          PATH: ${{ steps.path.outputs.value }}
+
+      - name: 'Print experiment output'
+        run: |
+          find build/run-test-prebuilt/test-support -name '*.jtr' -print0 \
+            | xargs -0 grep -h -E 'EXPERIMENT|execStatus|missing:' || true
+        if: always()
+
+      - name: 'Package test results'
+        run: |
+          mkdir results
+          if [[ -d build/run-test-prebuilt/test-support ]]; then
+            cd build/run-test-prebuilt/test-support/
+            zip -r -9 "$GITHUB_WORKSPACE/results/test-support.zip" . -i *.jtr -i */hs_err*.log
+          fi
+        if: always()
+
+      - name: 'Upload test results'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: results
+          name: results-${{ inputs.platform }}
+        if: always()

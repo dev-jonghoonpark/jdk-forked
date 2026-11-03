@@ -1,0 +1,69 @@
+# EXPERIMENT ONLY - not for upstream.
+# Builds fastdebug on x64 platforms and runs only TestVectorDebugInfoDecode,
+# to see which vector species end up as Location::vector on real x64 hardware.
+
+name: 'Experiment: SA vector locations on x64'
+
+on:
+  push:
+    branches:
+      - exp/sa-vector-x64
+  workflow_dispatch:
+
+jobs:
+  jtreg:
+    name: 'Build JTReg'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 'Checkout the scripts'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: |
+            .github
+            make/conf/github-actions.conf
+
+      - name: 'Build JTReg'
+        uses: ./.github/actions/build-jtreg
+
+  build-linux-x64:
+    name: linux-x64
+    needs: jtreg
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      platform: linux-x64
+      gcc-major-version: '10'
+      debug-levels: '[ "debug" ]'
+
+  build-windows-x64:
+    name: windows-x64
+    needs: jtreg
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      platform: windows-x64
+      runs-on: windows-2022
+      architecture: 'x86.x64'
+      msvc-toolset-version: '14.44'
+      debug-levels: '[ "debug" ]'
+
+  test-linux-x64:
+    name: linux-x64
+    needs: build-linux-x64
+    uses: ./.github/workflows/exp-test-single.yml
+    with:
+      platform: linux-x64
+      bootjdk-platform: linux-x64
+      runs-on: ubuntu-24.04
+      debug-suffix: -debug
+      test-suite: test/hotspot/jtreg/serviceability/sa/TestVectorDebugInfoDecode.java
+
+  test-windows-x64:
+    name: windows-x64
+    needs: build-windows-x64
+    uses: ./.github/workflows/exp-test-single.yml
+    with:
+      platform: windows-x64
+      bootjdk-platform: windows-x64
+      architecture: 'x86.x64'
+      runs-on: windows-2022
+      debug-suffix: -debug
+      test-suite: test/hotspot/jtreg/serviceability/sa/TestVectorDebugInfoDecode.java

@@ -133,12 +133,15 @@ public class TestVectorDebugInfoDecode {
             agent.detach();
         }
 
-        if (!externalNameSet.equals(EXPECTED_EXTERNAL_NAME_SET)) {
-            Set<String> missing = new HashSet<>(EXPECTED_EXTERNAL_NAME_SET);
-            missing.removeAll(externalNameSet);
-            Set<String> unexpected = new HashSet<>(externalNameSet);
-            unexpected.removeAll(EXPECTED_EXTERNAL_NAME_SET);
-
+        // EXPERIMENT ONLY: report extras instead of failing, to see what each platform vectorizes.
+        Set<String> missing = new HashSet<>(EXPECTED_EXTERNAL_NAME_SET);
+        missing.removeAll(externalNameSet);
+        Set<String> unexpected = new java.util.TreeSet<>(externalNameSet);
+        unexpected.removeAll(EXPECTED_EXTERNAL_NAME_SET);
+        System.out.println("EXPERIMENT vector-located: " + new java.util.TreeSet<>(externalNameSet));
+        System.out.println("EXPERIMENT extra: " + unexpected);
+        System.out.println("EXPERIMENT missing: " + missing);
+        if (!missing.isEmpty()) {
             throw new RuntimeException("missing: " + missing + ", unexpected: " + unexpected);
         }
     }
