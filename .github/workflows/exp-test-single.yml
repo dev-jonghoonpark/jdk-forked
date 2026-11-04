@@ -21,6 +21,9 @@ on:
       debug-suffix:
         required: false
         type: string
+      xcode-toolset-version:
+        required: false
+        type: string
       test-suite:
         required: true
         type: string
@@ -65,6 +68,15 @@ jobs:
           platform: ${{ inputs.platform }}
           debug-suffix: ${{ inputs.debug-suffix }}
 
+      - name: 'Install dependencies'
+        run: |
+          # On macOS we need to install some dependencies for testing
+          brew install make
+          sudo xcode-select --switch /Applications/Xcode_${{ inputs.xcode-toolset-version }}.app/Contents/Developer
+          # This will make GNU make available as 'make' and not only as 'gmake'
+          echo '/usr/local/opt/make/libexec/gnubin' >> $GITHUB_PATH
+        if: runner.os == 'macOS'
+
       - name: 'Set PATH'
         id: path
         run: |
@@ -79,11 +91,15 @@ jobs:
         run: |
           if [[ -f /proc/cpuinfo ]]; then
             grep -m1 'model name' /proc/cpuinfo || true
-            grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(sse4_2|avx|avx2|avx512f|avx512bw|avx512vl|avx512dq|avx512_fp16)$' | tr '\n' ' ' || true
+            grep -m1 -E '^(flags|Features)' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(sse4_2|avx|avx2|avx512f|avx512bw|avx512vl|avx512dq|avx512_fp16|asimd|asimdhp|fphp|sve|sve2)$' | tr '\n' ' ' || true
             echo
           fi
+          if [[ '${{ runner.os }}' == 'macOS' ]]; then
+            sysctl -n machdep.cpu.brand_string || true
+            sysctl -a 2>/dev/null | grep -E 'hw.optional.(arm.FEAT_FP16|arm.FEAT_SVE|AdvSIMD|avx2_0|avx512f)' || true
+          fi
           "${{ steps.bundles.outputs.jdk-path }}/bin/java" -XX:+PrintFlagsFinal -version \
-            | grep -E ' (UseSSE|UseAVX|MaxVectorSize|UseAVX512) ' || true
+            | grep -E ' (UseSSE|UseAVX|UseSVE|MaxVectorSize) ' || true
 
       - name: 'Run tests'
         id: run-tests
